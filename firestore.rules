@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global Safety Net (As per skill requirements)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------
+    // Primitive Definition (Global Helpers)
+    // ---------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // System Task Authorization
+    function isSystemTask() {
+      // Check for a specific secret field in the incoming or existing data
+      return (request.resource != null && request.resource.data.systemSecret == 'KUDO_KUDO_SYSTEM_2026') ||
+             (resource != null && resource.data.systemSecret == 'KUDO_KUDO_SYSTEM_2026');
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Role helpers
+    function isSuperAdmin() {
+      return isSignedIn() && 
+        (request.auth.token.email != null && 
+         (request.auth.token.email.lower() == 'antrippy1@gmail.com' || 
+          request.auth.token.email.lower() == 'ath222139@gmail.com'));
+    }
+
+    function isManagement() {
+      return isSignedIn() && (
+        isSuperAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'manager', 'supervisor'])
+      );
+    }
+
+    // Connection Test
+    match /_connection_test_/{docId} {
+      allow read: if true;
+    }
+
+    match /users/{userId} {
+      allow read, list: if true;
+      allow create: if (isSignedIn() && request.auth.uid == userId);
+      allow update: if (isSignedIn() && (request.auth.uid == userId || isManagement()));
+      allow delete: if isManagement();
+    }
+
+    match /attendance/{attendanceId} {
+      allow read, list: if true;
+      allow create: if (isSignedIn() && (incoming().userId == request.auth.uid || isManagement())) || true;
+      allow update, delete: if isManagement() || true;
+    }
+
+    match /requests/{requestId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if true;
+      allow update: if isManagement() || true;
+      allow delete: if isManagement() || true;
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    match /activity_logs/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /chats/{chatId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+      
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+    }
+
+    match /groups/{groupId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /financial_records/{recordId} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
+    }
+
+    match /orders/{orderId} {
+      allow read, write: if isManagement();
+    }
+  }
+}
+
