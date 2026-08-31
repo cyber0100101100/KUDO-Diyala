@@ -10,7 +10,7 @@ export default function AccountTypeSelection() {
     <div className="bg-slate-50 text-slate-800 min-h-screen flex flex-col items-center justify-center relative overflow-hidden antialiased">
       <header className="w-full absolute top-0 pt-12 px-6 flex justify-center z-10">
         <div className="h-12 w-56 relative">
-          <img src="/icon.png" alt="KUDO KUDO" className="h-full w-full object-contain" />
+          <img src="./Applogo.PNG" alt="KUDO KUDO" className="h-full w-full object-contain" />
         </div>
       </header>
 

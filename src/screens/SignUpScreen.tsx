@@ -145,7 +145,7 @@ export default function SignUpScreen() {
       <main className="w-full max-w-md mx-auto">
         <div className="flex justify-center mb-10">
           <div className="h-16 flex items-center justify-center px-8">
-            <img alt="KUDO KUDO" className="h-full object-contain" src="/icon.png" />
+            <img alt="KUDO KUDO" className="h-full object-contain" src="./Applogo.PNG" />
           </div>
         </div>
 
