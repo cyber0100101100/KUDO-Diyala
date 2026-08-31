@@ -20,11 +20,13 @@ import cron from 'node-cron';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Cross-format __dirname and __filename
+const isESM = typeof import.meta !== 'undefined' && import.meta.url;
+const __filename = isESM ? fileURLToPath(import.meta.url) : (typeof __filename !== 'undefined' ? __filename : '');
+const __dirname = isESM ? path.dirname(__filename) : (typeof __dirname !== 'undefined' ? __dirname : process.cwd());
 
 // Initialize Firebase Web SDK for Server
-const firebaseConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf8'));
+const firebaseConfig = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), './firebase-applet-config.json'), 'utf8'));
 const app = initializeApp(firebaseConfig);
 
 // Critical for sandboxed environments like AI Studio
