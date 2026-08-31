@@ -28,6 +28,7 @@ export default function AttendanceScreen() {
   const [todaySchedule, setTodaySchedule] = useState<Schedule | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const processingRef = useRef(false);
+  const writeCompletedRef = useRef(false);
   const stabilizationTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -180,6 +181,7 @@ export default function AttendanceScreen() {
         const snap = await getDocs(q);
         if (!snap.empty) {
           setAttendance({ id: snap.docs[0].id, ...snap.docs[0].data() } as Attendance);
+          writeCompletedRef.current = true;
         }
       } catch (err) {
         handleFirestoreError(err, OperationType.GET, 'attendance');
@@ -200,8 +202,12 @@ export default function AttendanceScreen() {
     let intervalId: any;
 
     const runAutoVerify = async () => {
-      if (!modelsLoaded || !stream || verifying || processingRef.current || locationStatus !== 'inside' || (attendance && attendance.checkOutTime)) return;
+      // Add local state check for verifying and attendance
+      if (!modelsLoaded || !stream || verifying || processingRef.current || writeCompletedRef.current || locationStatus !== 'inside') return;
       
+      // If already has attendance with check-out, or just checked in but state hasn't updated
+      if (attendance && attendance.checkOutTime) return;
+
       try {
         processingRef.current = true;
         const detection = await faceapi
@@ -218,21 +224,33 @@ export default function AttendanceScreen() {
               const dist = faceapi.euclideanDistance(storedEmbedding, detection.descriptor);
               
               if (dist <= 0.5) {
-                // Success! Auto trigger attendance
+                // Success! Stop the loop immediately before calling the logic
+                if (intervalId) {
+                  clearInterval(intervalId);
+                  intervalId = null;
+                }
                 await handleAttendanceInternal();
               }
             }
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Auto verify error:', err);
+        // If quota exceeded, stop the loop permanently for this session
+        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
+          if (intervalId) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
+          setError('عذراً، تم تجاوز حد العمليات المسموح به اليوم. يرجى المحاولة غداً أو التواصل مع الإدارة.');
+        }
       } finally {
         processingRef.current = false;
       }
     };
 
-    if (modelsLoaded && stream && locationStatus === 'inside') {
-      intervalId = setInterval(runAutoVerify, 1000);
+    if (modelsLoaded && stream && locationStatus === 'inside' && !attendance?.checkOutTime && !writeCompletedRef.current) {
+      intervalId = setInterval(runAutoVerify, 2000); // Throttled further to 2s
     }
 
     return () => {
@@ -392,6 +410,7 @@ export default function AttendanceScreen() {
         };
         const docRef = await addDoc(collection(db, 'attendance'), newAttendance);
         setAttendance({ id: docRef.id, ...newAttendance });
+        writeCompletedRef.current = true;
 
         // Update User 30-day work cycle and Status
         const userRef = doc(db, 'users', user!.uid);

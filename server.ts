@@ -20,10 +20,8 @@ import cron from 'node-cron';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
-// Cross-format __dirname and __filename
-const isESM = typeof import.meta !== 'undefined' && import.meta.url;
-const __filename = isESM ? fileURLToPath(import.meta.url) : (typeof __filename !== 'undefined' ? __filename : '');
-const __dirname = isESM ? path.dirname(__filename) : (typeof __dirname !== 'undefined' ? __dirname : process.cwd());
+// Cross-format path handling
+// Note: We use process.cwd() instead of __dirname to ensure compatibility across ESM/CJS in AI Studio container.
 
 // Initialize Firebase Web SDK for Server
 const firebaseConfig = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), './firebase-applet-config.json'), 'utf8'));

@@ -135,6 +135,7 @@ interface FirestoreErrorInfo {
 
 export function handleFirestoreError(error: any, operationType: OperationType, path: string | null) {
   const isUnavailable = error?.code === 'unavailable' || error?.message?.includes('the client is offline');
+  const isQuotaExceeded = error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded');
   
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
@@ -150,6 +151,8 @@ export function handleFirestoreError(error: any, operationType: OperationType, p
 
   if (isUnavailable) {
     console.warn('Firestore connection unavailable (offline mode). Operation will be retried automatically when online.', errInfo);
+  } else if (isQuotaExceeded) {
+    console.error('CRITICAL: Firestore Quota Exceeded (Resource Exhausted). Writes are being blocked by Google Cloud.', errInfo);
   } else {
     console.error('Firestore Error: ', JSON.stringify(errInfo));
   }

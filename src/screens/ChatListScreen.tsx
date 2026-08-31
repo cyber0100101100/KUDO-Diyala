@@ -11,9 +11,25 @@ export default function ChatListScreen() {
   const navigate = useNavigate();
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
+  const [managerId, setManagerId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
+
+    // Try to find the manager if employee
+    if (user.role === 'employee' && user.groupId) {
+      const fetchManager = async () => {
+        try {
+          const groupSnap = await getDoc(doc(db, 'groups', user.groupId!));
+          if (groupSnap.exists()) {
+            setManagerId(groupSnap.data().managerId);
+          }
+        } catch (e) {
+          console.error('Error fetching manager ID:', e);
+        }
+      };
+      fetchManager();
+    }
     
     // In this app, employee usually chats with manager
     const q = query(
@@ -33,10 +49,14 @@ export default function ChatListScreen() {
     return () => unsubscribe();
   }, [user, authLoading]);
 
-  const startChat = async (targetId: string = 'manager-id') => {
+  const startChat = async (targetId: string | null = null) => {
     const isManagement = user?.role === 'admin' || user?.role === 'manager';
     const basePath = isManagement ? 'admin' : 'employee';
-    const chatId = [user!.uid, targetId].sort().join('_');
+    
+    // Default target for employee is their manager
+    const actualTargetId = targetId || managerId || 'manager-id';
+    
+    const chatId = [user!.uid, actualTargetId].sort().join('_');
     navigate(`/${basePath}/chat/${chatId}`);
   };
 

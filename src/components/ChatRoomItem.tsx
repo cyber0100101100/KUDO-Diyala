@@ -37,12 +37,6 @@ const ChatRoomItem: React.FC<ChatRoomItemProps> = ({ room, userId, userRole }) =
             title: data.jobTitle || (data.role === 'manager' ? 'مدير' : 'موظف'),
             photo: data.profileImageUrl || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=100&h=100"
           });
-        } else if (otherId === 'manager-id') {
-          setOtherUser({
-            name: 'أحمد المدير',
-            title: 'مدير العمليات',
-            photo: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBrx6_YgVbgBetk0oZ6llBYzVNK4VTOfHOwXfEymGwa_8klRJ1KuvX7K7GXmjsSKxNQGF9fLUtibemNgKJxYLeOq4OiNqFLJ5zN5yVcr86ResMsVKVB9-DRtVjWHcL9CbFNGhjn1j6JIprMML3ss3CcAk2NnO22w2TkoZ3J28ZUx6wLNOZkGl_5BIVslf5NDdLytsf0ushIoqc48Q_RVC0ElsGTaD2xANUL81Bf0ntFoDx2eBYX5UDfPA'
-          });
         }
       } catch (e) {
         console.error(e);

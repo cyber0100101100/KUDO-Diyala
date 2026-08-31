@@ -4,7 +4,21 @@ import { Schedule, User } from '../types';
 import { formatTime12h, getTodayBaghdadStr } from '../lib/timeUtils';
 
 export class NotificationService {
+  private static quotaExhaustedUntil = 0;
+
+  private static isQuotaExhausted() {
+    return Date.now() < this.quotaExhaustedUntil;
+  }
+
+  private static setQuotaExhausted() {
+    // Stop all writes for 15 minutes if quota is hit
+    this.quotaExhaustedUntil = Date.now() + 15 * 60 * 1000;
+    console.warn('Firestore quota exceeded. Backing off for 15 minutes.');
+  }
+
   static async processScheduledNotifications(userId?: string) {
+    if (this.isQuotaExhausted()) return;
+
     const todayStr = getTodayBaghdadStr();
     const now = new Date();
     
@@ -24,12 +38,17 @@ export class NotificationService {
         const schedule = { id: scheduleDoc.id, ...scheduleDoc.data() } as Schedule;
         await this.checkAndSend(schedule, now);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.code === 'resource-exhausted') {
+        this.setQuotaExhausted();
+      }
       console.error('Notification Service Error:', err);
     }
   }
 
   private static async checkAndSend(schedule: Schedule, now: Date) {
+    if (this.isQuotaExhausted()) return;
+
     const [startH, startM] = schedule.startTime.split(':').map(Number);
     const schedStart = new Date(now);
     schedStart.setHours(startH, startM, 0, 0);
@@ -39,7 +58,6 @@ export class NotificationService {
 
     const sent = schedule.notificationsSent || {};
     const updates: any = {};
-    const notificationPath = 'notifications';
 
     // 1. Half hour before (25-35 mins)
     if (diffMins <= 30 && diffMins > 10 && !sent.halfHour) {
@@ -75,17 +93,22 @@ export class NotificationService {
     if (diffMins <= -20 && !sent.twentyMinLate) {
       await this.send(schedule.userId, 'تنبيه: أنت متأخر رسمياً', 'لقد تجاوزت مهلة الـ 20 دقيقة. سيتم تسجيل حالتك كمتأخر في التقرير اليومي.');
       updates['notificationsSent.twentyMinLate'] = true;
-      
-      // Update schedule status if they still haven't checked in
-      // (This part depends on if we want to auto-mark as late)
     }
 
     if (Object.keys(updates).length > 0) {
-      await updateDoc(doc(db, 'schedules', schedule.id!), updates);
+      try {
+        await updateDoc(doc(db, 'schedules', schedule.id!), updates);
+      } catch (err: any) {
+        if (err?.code === 'resource-exhausted') {
+          this.setQuotaExhausted();
+        }
+        throw err;
+      }
     }
   }
 
   static async processEndOfDay() {
+    if (this.isQuotaExhausted()) return;
     const now = new Date();
     const yesterday = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Baghdad' }));
     yesterday.setDate(yesterday.getDate() - 1);
