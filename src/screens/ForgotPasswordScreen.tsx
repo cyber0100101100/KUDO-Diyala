@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'motion/react';
+import logo from '/logo_upscayl_4x_upscayl-standard-4x.png?url';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 
@@ -109,7 +110,7 @@ export default function ForgotPasswordScreen() {
         </form>
 
         <div className="mt-12 w-full h-12 flex items-center justify-center opacity-20">
-          <img src="/icon.png" alt="KUDO" className="h-full object-contain" />
+          <img src={logo} alt="KUDO" className="h-full object-contain" />
         </div>
       </div>
     </div>

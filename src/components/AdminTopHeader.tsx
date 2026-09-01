@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
+import logo from '/logo_upscayl_4x_upscayl-standard-4x.png?url';
 import { useAuth } from '../hooks/useAuth';
 
 interface AdminTopHeaderProps {
@@ -65,7 +66,7 @@ export default function AdminTopHeader({
           <motion.img 
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            src="/icon.png" 
+            src={logo} 
             alt="KUDO KUDO" 
             className="h-5 md:h-8 object-contain"
           />

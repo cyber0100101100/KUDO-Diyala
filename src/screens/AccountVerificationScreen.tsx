@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
+import logo from '/logo_upscayl_4x_upscayl-standard-4x.png?url';
 import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { motion } from 'motion/react';
 import { User } from '../types';
@@ -97,7 +98,7 @@ export default function AccountVerificationScreen() {
         className="w-full max-w-md"
       >
         <div className="flex justify-center mb-8">
-          <img alt="Logo" className="h-20" src="/icon.png" />
+          <img alt="Logo" className="h-20" src={logo} />
         </div>
 
         <div className="bg-white rounded-[40px] p-10 shadow-xl shadow-slate-200/50 text-center">

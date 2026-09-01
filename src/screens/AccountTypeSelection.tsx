@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import logo from '/logo.png?url';
+import logo from '/logo_upscayl_4x_upscayl-standard-4x.png?url';
 
 export default function AccountTypeSelection() {
   const [selectedRole, setSelectedRole] = useState<'manager' | 'employee' | null>(null);
