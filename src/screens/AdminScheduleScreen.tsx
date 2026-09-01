@@ -290,9 +290,11 @@ export default function AdminScheduleScreen() {
                       className="w-full bg-slate-50 border border-red-50 rounded-2xl p-4 font-black text-sm focus:outline-none focus:border-[#E31E24] appearance-none"
                     >
                       <option value="">اختر موظفاً</option>
-                      {employees.map(emp => (
-                        <option key={emp.uid} value={emp.uid}>{emp.displayName}</option>
-                      ))}
+                      {employees
+                        .filter(emp => !selectedEntries.some(entry => entry.userId === emp.uid))
+                        .map(emp => (
+                          <option key={emp.uid} value={emp.uid}>{emp.displayName}</option>
+                        ))}
                     </select>
                   </div>
 

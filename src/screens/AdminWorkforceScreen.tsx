@@ -282,7 +282,7 @@ export default function AdminWorkforceScreen() {
           const emp = employees.find(e => e.uid === selectedUserId);
           const dailyDeduction = Math.trunc((emp?.baseSalary || 0) / 30);
           
-          // 1. Record the absence
+          // 1. Record the absence in attendance
           await addDoc(collection(db, 'attendance'), {
             userId: selectedUserId,
             date: todayDate,
@@ -291,19 +291,25 @@ export default function AdminWorkforceScreen() {
             checkInTime: serverTimestamp()
           });
 
-          // 2. Create the deduction request for manager
-          await addDoc(collection(db, 'requests'), {
+          // 2. Create the financial record directly for immediate salary sync
+          await addDoc(collection(db, 'financial_records'), {
             userId: selectedUserId,
-            requesterId: user?.uid,
-            type: 'absence_deduction',
-            amount: dailyDeduction,
-            status: 'pending',
-            reason: `غياب الموظف عن العمل بتاريخ ${todayDate}`,
+            userName: emp?.displayName || 'موظف',
+            bonus: 0,
+            advance: 0,
+            deduction: dailyDeduction,
+            overtime: 0,
+            period: todayDate.slice(0, 7),
+            reason: `خصم غياب يوم ${todayDate}`,
             createdAt: serverTimestamp(),
-            date: todayDate
+            createdBy: user?.uid || 'admin',
+            type: 'absence_deduction'
           });
 
-          alert('تم تسجيل الغياب وإرسال طلب الخصم للمدير للموافقة');
+          // 3. Notification
+          await sendNotification(selectedUserId, 'تسجيل غياب', `تم تسجيل غيابك لليوم وتطبيق خصم بقيمة ${dailyDeduction.toLocaleString()} د.ع`, 'salary');
+
+          alert('تم تسجيل الغياب وتحديث الراتب فوراً');
           break;
 
         case 'edit_profile':

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, getDocs, doc, updateDoc, increment, getDoc, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, increment, getDoc, addDoc, serverTimestamp, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
 import { User } from '../types';
@@ -26,6 +26,94 @@ export default function AdminSalaryScreen() {
   const [attendanceStats, setAttendanceStats] = useState<{[key: string]: { attended: number, absent: number }}>({});
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthBaghdadStr()); // YYYY-MM
   const [financialRecords, setFinancialRecords] = useState<any[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [editingAttendanceUser, setEditingAttendanceUser] = useState<User | null>(null);
+  const [modalDate, setModalDate] = useState(new Date().toISOString().split('T')[0]);
+  const [modalStatus, setModalStatus] = useState<'present' | 'absent'>('present');
+
+  const handleSaveAttendance = async () => {
+    if (!editingAttendanceUser || !modalDate || syncing) return;
+    setSyncing(true);
+    try {
+      // 1. Check if record exists for this date
+      const q = query(
+        collection(db, 'attendance'),
+        where('userId', '==', editingAttendanceUser.uid),
+        where('date', '==', modalDate)
+      );
+      const snap = await getDocs(q);
+      
+      if (!snap.empty) {
+        // Update existing
+        await updateDoc(snap.docs[0].ref, {
+          status: modalStatus,
+          updatedAt: serverTimestamp(),
+          updatedBy: user?.uid
+        });
+      } else {
+        // Create new
+        await addDoc(collection(db, 'attendance'), {
+          userId: editingAttendanceUser.uid,
+          userName: editingAttendanceUser.displayName,
+          date: modalDate,
+          status: modalStatus,
+          createdAt: serverTimestamp(),
+          createdBy: user?.uid,
+          manual: true
+        });
+      }
+
+      // 2. Sync Financial Records
+      if (modalStatus === 'present') {
+        // Remove deduction
+        const financialQ = query(
+          collection(db, 'financial_records'),
+          where('userId', '==', editingAttendanceUser.uid),
+          where('type', '==', 'absence_deduction'),
+          where('reason', '>=', `خصم غياب يوم ${modalDate}`),
+          where('reason', '<=', `خصم غياب يوم ${modalDate}\uf8ff`)
+        );
+        const financialSnap = await getDocs(financialQ);
+        for (const docRef of financialSnap.docs) {
+          await deleteDoc(docRef.ref);
+        }
+      } else {
+        // Add deduction if not already there
+        const financialQ = query(
+          collection(db, 'financial_records'),
+          where('userId', '==', editingAttendanceUser.uid),
+          where('type', '==', 'absence_deduction'),
+          where('reason', '>=', `خصم غياب يوم ${modalDate}`),
+          where('reason', '<=', `خصم غياب يوم ${modalDate}\uf8ff`)
+        );
+        const financialSnap = await getDocs(financialQ);
+        if (financialSnap.empty) {
+          const dailyDeduction = Math.trunc((editingAttendanceUser.baseSalary || 0) / 30);
+          await addDoc(collection(db, 'financial_records'), {
+            userId: editingAttendanceUser.uid,
+            userName: editingAttendanceUser.displayName,
+            bonus: 0,
+            advance: 0,
+            deduction: dailyDeduction,
+            overtime: 0,
+            period: modalDate.slice(0, 7),
+            reason: `خصم غياب يوم ${modalDate} (تعديل يدوي)`,
+            createdAt: serverTimestamp(),
+            createdBy: user?.uid,
+            type: 'absence_deduction'
+          });
+        }
+      }
+      
+      alert('تم تحديث البيانات والمزامنة بنجاح');
+      setEditingAttendanceUser(null);
+    } catch (error) {
+      console.error("Error saving attendance:", error);
+      alert('فشل حفظ البيانات');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   useEffect(() => {
     if (selectedEmployee) {
@@ -125,11 +213,11 @@ export default function AdminSalaryScreen() {
       alert('عذراً، لا يمكنك تعديل راتبك الخاص أو راتب مشرف آخر. هذه الصلاحية للمدير العام فقط.');
       return;
     }
-    const bonusNum = Number(bonus);
-    const advanceNum = Number(advance);
-    const deductionNum = Number(deduction);
-    const overtimeNum = Number(overtime);
-    const baseSalaryNum = Number(baseSalary);
+    const bonusNum = Number(bonus) || 0;
+    const advanceNum = Number(advance) || 0;
+    const deductionNum = Number(deduction) || 0;
+    const overtimeNum = Number(overtime) || 0;
+    const baseSalaryNum = Number(baseSalary) || 0;
 
     if ((user.role === 'admin' || user.role === 'supervisor') && (bonusNum > 40000 || deductionNum > 40000 || overtimeNum > 40000 || advanceNum > 40000)) {
       alert('عذراً، الحد الأقصى المسموح به للمسؤول/المشرف هو 40,000 دينار. سيتم تحويل الطلبات الكبيرة للمدير العام للموافقة.');
@@ -329,6 +417,58 @@ export default function AdminSalaryScreen() {
     }
   };
 
+  const toggleAttendanceStatus = async (attendanceDoc: any) => {
+    if (!editingAttendanceUser || syncing) return;
+    setSyncing(true);
+    try {
+      const newStatus = attendanceDoc.status === 'present' ? 'absent' : 'present';
+      const date = attendanceDoc.date;
+      
+      // 1. Update Attendance Document
+      await updateDoc(doc(db, 'attendance', attendanceDoc.id), {
+        status: newStatus,
+        updatedAt: serverTimestamp(),
+        updatedBy: user?.uid
+      });
+
+      // 2. Sync with Financial Records
+      if (newStatus === 'present') {
+        // Find and remove any absence deduction for this specific date
+        const q = query(
+          collection(db, 'financial_records'),
+          where('userId', '==', editingAttendanceUser.uid),
+          where('type', '==', 'absence_deduction'),
+          where('reason', '>=', `خصم غياب يوم ${date}`),
+          where('reason', '<=', `خصم غياب يوم ${date}\uf8ff`)
+        );
+        const snap = await getDocs(q);
+        for (const recordDoc of snap.docs) {
+          await deleteDoc(recordDoc.ref);
+        }
+      } else {
+        // Create absence deduction
+        const dailyDeduction = Math.trunc((editingAttendanceUser.baseSalary || 0) / 30);
+        await addDoc(collection(db, 'financial_records'), {
+          userId: editingAttendanceUser.uid,
+          userName: editingAttendanceUser.displayName,
+          bonus: 0,
+          advance: 0,
+          deduction: dailyDeduction,
+          overtime: 0,
+          period: date.slice(0, 7),
+          reason: `خصم غياب يوم ${date} (تعديل يدوي)`,
+          createdAt: serverTimestamp(),
+          createdBy: user?.uid,
+          type: 'absence_deduction'
+        });
+      }
+    } catch (error) {
+      console.error("Error toggling attendance:", error);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const getEmployeeStats = (userId: string, baseSal: number = 0) => {
     const records = financialRecords.filter(r => r.userId === userId);
     const stats = records.reduce((acc, curr) => ({
@@ -338,13 +478,11 @@ export default function AdminSalaryScreen() {
       overtime: acc.overtime + (curr.overtime || 0)
     }), { bonus: 0, advance: 0, deduction: 0, overtime: 0 });
 
-    // Calculate absence deduction if not already in financial records
-    // Note: processEndOfDay usually adds them to financial_records
     const att = attendanceStats[userId] || { attended: 0, absent: 0 };
     const absenceDeductionFromAtt = (baseSal / 30) * att.absent;
     
-    // Check if there are already absence deductions in records to avoid double counting
-    const hasAbsenceDeductionInRecords = records.some(r => r.reason && r.reason.includes('غياب'));
+    // Improved logic: exclude automated absence deductions if they are already manually recorded or approved
+    const hasAbsenceDeductionInRecords = records.some(r => (r.reason && (r.reason.includes('غياب') || r.reason.includes('Absence'))) || r.type === 'absence_deduction');
     
     return {
       ...stats,
@@ -451,7 +589,10 @@ export default function AdminSalaryScreen() {
     <div className="font-sans rtl flex flex-col min-h-screen antialiased bg-white pb-20 pt-16 md:pt-20">
       <AdminTopHeader title="إدارة الرواتب" />
       
-      <div className="p-6 md:p-12 max-w-7xl mx-auto w-full space-y-10 md:space-y-16">
+      <div className="p-6 md:p-12 max-w-7xl mx-auto w-full space-y-10 md:space-y-16 relative">
+        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-96 h-96 bg-red-50 rounded-full blur-[120px] opacity-40 pointer-events-none -z-10"></div>
+        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-80 h-80 bg-blue-50 rounded-full blur-[100px] opacity-30 pointer-events-none -z-10"></div>
+        
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-slate-100 pb-10">
           <div className="space-y-2 md:space-y-4">
             <h1 className="text-3xl md:text-5xl font-black text-slate-900  er leading-tight">إدارة الرواتب</h1>
@@ -751,7 +892,8 @@ export default function AdminSalaryScreen() {
                 </div>
               </div>
 
-              <div className="bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-8 border border-slate-50 shadow-sm overflow-hidden">
+              <div className="bg-white/80 backdrop-blur-xl rounded-[32px] md:rounded-[40px] p-6 md:p-8 border border-slate-50 shadow-sm overflow-hidden relative">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-500/20 to-transparent"></div>
                 <div className="flex items-center justify-between mb-8 px-2">
                   <div className="space-y-1">
                     <h2 className="text-lg md:text-xl font-black text-slate-900  ">تقرير رواتب الموظفين</h2>
@@ -808,7 +950,10 @@ export default function AdminSalaryScreen() {
                                 </div>
                               </div>
                             </td>
-                            <td className="py-4 px-4 text-center bg-slate-50/30 group-hover:bg-white border-y border-slate-50/50 group-hover:border-slate-100 transition-all">
+                            <td 
+                              onClick={() => setEditingAttendanceUser(emp)}
+                              className="py-4 px-4 text-center bg-slate-50/30 group-hover:bg-white border-y border-slate-50/50 group-hover:border-slate-100 transition-all cursor-pointer hover:bg-slate-100/50"
+                            >
                               <div className="flex flex-col items-center">
                                 <span className="text-[10px] font-black text-emerald-500">{(attendanceStats[emp.uid]?.attended || 0)} ح</span>
                                 <span className="text-[10px] font-black text-[#E31E24]">{(attendanceStats[emp.uid]?.absent || 0)} غ</span>
@@ -874,6 +1019,98 @@ export default function AdminSalaryScreen() {
           )}
         </AnimatePresence>
       </div>
+      {/* Attendance Edit Modal */}
+      <AnimatePresence>
+        {editingAttendanceUser && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center px-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingAttendanceUser(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-lg p-8 shadow-2xl relative z-10 max-h-[80vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center text-red-600">
+                    <span className="material-symbols-outlined">calendar_month</span>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900">تعديل سجل الحضور</h3>
+                    <p className="text-xs font-black text-slate-400">{editingAttendanceUser.displayName}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setEditingAttendanceUser(null)}
+                  className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center hover:bg-slate-200 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">close</span>
+                </button>
+              </div>
+
+              <div className="flex-1 space-y-8">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase px-2 text-right block">تاريخ التسجيل</label>
+                    <input 
+                      type="date"
+                      value={modalDate}
+                      onChange={(e) => setModalDate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 font-black text-lg focus:outline-none focus:border-red-500 text-center"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase px-2 text-right block">حالة الحضور</label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <button 
+                        onClick={() => setModalStatus('present')}
+                        className={`py-4 rounded-2xl font-black text-sm transition-all border-2 ${
+                          modalStatus === 'present' 
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-600 shadow-lg shadow-emerald-100' 
+                            : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'
+                        }`}
+                      >
+                        حاضر
+                      </button>
+                      <button 
+                        onClick={() => setModalStatus('absent')}
+                        className={`py-4 rounded-2xl font-black text-sm transition-all border-2 ${
+                          modalStatus === 'absent' 
+                            ? 'bg-red-50 border-red-500 text-red-600 shadow-lg shadow-red-100' 
+                            : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'
+                        }`}
+                      >
+                        غائب
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleSaveAttendance}
+                  disabled={syncing || !modalDate}
+                  className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-sm shadow-xl shadow-slate-200 active:scale-[0.98] transition-all disabled:opacity-50"
+                >
+                  {syncing ? 'جاري الحفظ والمزامنة...' : 'تحديث البيانات والمزامنة'}
+                </button>
+              </div>
+              
+              <div className="mt-8 pt-6 border-t border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 text-center uppercase tracking-widest">
+                  سيتم تحديث الراتب والمزامنة مع نظام الموظف تلقائياً
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
