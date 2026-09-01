@@ -15,27 +15,19 @@ export default function GlobalServiceRunner() {
 
     const isManagement = user.role === 'admin' || user.role === 'manager' || user.role === 'supervisor' || user.email === 'antrippy1@gmail.com' || user.email === 'ath222139@gmail.com';
 
-    // Run notification processor every 2 minutes
+    // Run notification processor every 5 minutes (increased from 2)
     const interval = setInterval(() => {
-      // Employees only process their own notifications
-      // Management processes all
-      NotificationService.processScheduledNotifications(isManagement ? undefined : user.uid);
-    }, 120000);
+      NotificationService.processScheduledNotifications(user.uid);
+    }, 300000);
     
-    // Initial run with delay to avoid slamming Firestore on mount
+    // Initial run with delay
     const timeout = setTimeout(() => {
-      NotificationService.processScheduledNotifications(isManagement ? undefined : user.uid);
-    }, 5000);
+      NotificationService.processScheduledNotifications(user.uid);
+    }, 10000);
     
     // Only management runs End of Day processor
     if (isManagement) {
-      const lastRun = localStorage.getItem('last_eod_run');
-      const todayStr = getTodayBaghdadStr();
-      if (lastRun !== todayStr) {
-        NotificationService.processEndOfDay().then(() => {
-          localStorage.setItem('last_eod_run', todayStr);
-        });
-      }
+      NotificationService.processEndOfDay();
     }
     
     return () => {

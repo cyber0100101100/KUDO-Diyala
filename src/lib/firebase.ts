@@ -19,7 +19,9 @@ import {
   increment,
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager
+  persistentMultipleTabManager,
+  disableNetwork,
+  enableNetwork
 } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
@@ -73,6 +75,11 @@ export async function requestNotificationPermission(userId: string) {
     return false;
   }
   
+  // Throttle writes: only check once every 24 hours per user
+  const lastCheckKey = `last_notif_perm_check_${userId}`;
+  const lastCheck = localStorage.getItem(lastCheckKey);
+  if (lastCheck && Date.now() - parseInt(lastCheck, 10) < 24 * 60 * 60 * 1000) return true;
+
   try {
     const permission = await window.Notification.requestPermission();
     if (permission === 'granted') {
@@ -89,11 +96,16 @@ export async function requestNotificationPermission(userId: string) {
         console.log('FCM Token obtained');
       }
       
+      if (isFirestoreQuotaExhausted()) return true;
       await updateDoc(doc(db, 'users', userId), updates);
+      localStorage.setItem(lastCheckKey, Date.now().toString());
       return true;
     } else {
       console.warn('Notification permission denied');
-      await updateDoc(doc(db, 'users', userId), { notificationsEnabled: false });
+      if (!isFirestoreQuotaExhausted()) {
+        await updateDoc(doc(db, 'users', userId), { notificationsEnabled: false });
+      }
+      localStorage.setItem(lastCheckKey, Date.now().toString());
       return false;
     }
   } catch (err) {
@@ -133,10 +145,40 @@ interface FirestoreErrorInfo {
   }
 }
 
+let quotaExhaustedUntil = 0;
+
+const QUOTA_KEY = 'firestore_quota_exhausted_until';
+
+export function isFirestoreQuotaExhausted() {
+  const stored = localStorage.getItem(QUOTA_KEY);
+  if (stored) {
+    const until = parseInt(stored, 10);
+    if (Date.now() < until) return true;
+    localStorage.removeItem(QUOTA_KEY);
+    enableNetwork(db).catch(err => console.error('Error enabling network:', err));
+  }
+  return false;
+}
+
+export function setFirestoreQuotaExhausted() {
+  // Block writes for 2 hours if quota is hit
+  const until = Date.now() + 2 * 60 * 60 * 1000;
+  localStorage.setItem(QUOTA_KEY, until.toString());
+  console.warn('Global Firestore quota exceeded. Writes are blocked.');
+  window.dispatchEvent(new CustomEvent('firestore-quota-exhausted'));
+  
+  // Disable network to stop SDK retries
+  disableNetwork(db).catch(err => console.error('Error disabling network:', err));
+}
+
 export function handleFirestoreError(error: any, operationType: OperationType, path: string | null) {
   const isUnavailable = error?.code === 'unavailable' || error?.message?.includes('the client is offline');
   const isQuotaExceeded = error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded');
   
+  if (isQuotaExceeded) {
+    setFirestoreQuotaExhausted();
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {

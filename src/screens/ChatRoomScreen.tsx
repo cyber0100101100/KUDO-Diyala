@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc, setDoc, updateDoc, increment, writeBatch, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, storage, handleFirestoreError, OperationType, isFirestoreQuotaExhausted, setFirestoreQuotaExhausted } from '../lib/firebase';
 import { formatTime12h } from '../lib/timeUtils';
 import { useAuth } from '../hooks/useAuth';
 import { ChatMessage } from '../types';
@@ -24,7 +24,7 @@ export default function ChatRoomScreen() {
 
     // Reset unread count for current user - only once per mount
     const resetUnread = async () => {
-      if (resetUnreadDone.current) return;
+      if (resetUnreadDone.current || isFirestoreQuotaExhausted()) return;
       try {
         const roomRef = doc(db, 'chats', chatId);
         const roomSnap = await getDoc(roomRef);
@@ -38,9 +38,9 @@ export default function ChatRoomScreen() {
           }
         }
       } catch (e: any) {
-        if (e?.code === 'resource-exhausted') {
-          console.warn('Quota exceeded, skipping unread reset');
-          resetUnreadDone.current = true; // Don't keep trying if quota is hit
+        if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+          setFirestoreQuotaExhausted();
+          resetUnreadDone.current = true;
           return;
         }
         console.warn('Failed to reset unread count', e);
@@ -82,6 +82,7 @@ export default function ChatRoomScreen() {
 
     // Ensure room exists
     const ensureRoom = async () => {
+      if (isFirestoreQuotaExhausted()) return;
       try {
         const roomRef = doc(db, 'chats', chatId);
         const roomSnap = await getDoc(roomRef);
@@ -106,7 +107,11 @@ export default function ChatRoomScreen() {
             unreadCount: pIds.reduce((acc, id) => ({ ...acc, [id]: 0 }), {})
           });
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
+          setFirestoreQuotaExhausted();
+          return;
+        }
         handleFirestoreError(err, OperationType.GET, `chats/${chatId}`);
       }
     };

@@ -153,6 +153,14 @@ export default function AdminWorkforceScreen() {
     if (!modalType) return;
     setIsProcessing(true);
 
+    const { isFirestoreQuotaExhausted, setFirestoreQuotaExhausted } = await import('../lib/firebase');
+    if (isFirestoreQuotaExhausted()) {
+      alert('عذراً، تم تجاوز حد العمليات المسموح به اليوم. يرجى المحاولة لاحقاً.');
+      setIsProcessing(false);
+      setModalType('none');
+      return;
+    }
+
     try {
       if (modalType === 'create_group') {
         if (!newGroupName.trim()) {
@@ -332,9 +340,15 @@ export default function AdminWorkforceScreen() {
           alert('تم تحديث اسم الموظف بنجاح');
           break;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('حدث خطأ أثناء تنفيذ العملية');
+      if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+        const { setFirestoreQuotaExhausted } = await import('../lib/firebase');
+        setFirestoreQuotaExhausted();
+        alert('عذراً، تم تجاوز حد العمليات اليومي المسموح به. يرجى المحاولة غداً.');
+      } else {
+        alert('حدث خطأ أثناء تنفيذ العملية');
+      }
     } finally {
       setIsProcessing(false);
       setModalType('none');

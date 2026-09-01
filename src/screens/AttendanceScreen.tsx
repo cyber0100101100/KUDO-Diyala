@@ -205,6 +205,17 @@ export default function AttendanceScreen() {
       // Add local state check for verifying and attendance
       if (!modelsLoaded || !stream || verifying || processingRef.current || writeCompletedRef.current || locationStatus !== 'inside') return;
       
+      // Safety check: Global quota
+      const { isFirestoreQuotaExhausted } = await import('../lib/firebase');
+      if (isFirestoreQuotaExhausted()) {
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+        setError('عذراً، تم تجاوز حد العمليات المسموح به اليوم. يرجى المحاولة غداً أو التواصل مع الإدارة.');
+        return;
+      }
+
       // If already has attendance with check-out, or just checked in but state hasn't updated
       if (attendance && attendance.checkOutTime) return;
 
@@ -238,6 +249,8 @@ export default function AttendanceScreen() {
         console.error('Auto verify error:', err);
         // If quota exceeded, stop the loop permanently for this session
         if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
+          const { setFirestoreQuotaExhausted } = await import('../lib/firebase');
+          setFirestoreQuotaExhausted();
           if (intervalId) {
             clearInterval(intervalId);
             intervalId = null;
@@ -346,6 +359,12 @@ export default function AttendanceScreen() {
   };
 
   const handleAttendanceInternal = async () => {
+    const { isFirestoreQuotaExhausted } = await import('../lib/firebase');
+    if (isFirestoreQuotaExhausted()) {
+      setError('عذراً، تم تجاوز حد العمليات المسموح به اليوم. يرجى المحاولة غداً.');
+      return;
+    }
+    
     if (locationStatus !== 'inside') {
       setError('يجب أن تكون داخل نطاق المطعم لتسجيل الحضور');
       return;

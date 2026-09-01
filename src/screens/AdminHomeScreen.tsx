@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, limit, orderBy, onSnapshot, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, isFirestoreQuotaExhausted } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 import AdminTopHeader from '../components/AdminTopHeader';
 import { formatTime12h, formatLiveClock, formatDateNumeric, getTodayBaghdadStr } from '../lib/timeUtils';
 import { NotificationService } from '../services/NotificationService';
+import { userCache } from '../services/UserCacheService';
 
 export default function AdminHomeScreen() {
   const navigate = useNavigate();
@@ -36,6 +37,9 @@ export default function AdminHomeScreen() {
     deductions: 0,
     net: 0
   });
+  const [showPresentModal, setShowPresentModal] = useState(false);
+  const [presentEmployees, setPresentEmployees] = useState<any[]>([]);
+  const [loadingPresent, setLoadingPresent] = useState(false);
 
   // Check notification permission
   useEffect(() => {
@@ -62,7 +66,7 @@ export default function AdminHomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (authLoading || !user || !auth.currentUser || (user.role !== 'admin' && user.role !== 'manager' && user.role !== 'supervisor' && user.email !== 'antrippy1@gmail.com' && user.email !== 'ath222139@gmail.com')) return;
+    if (authLoading || !user || !auth.currentUser || isFirestoreQuotaExhausted() || (user.role !== 'admin' && user.role !== 'manager' && user.role !== 'supervisor' && user.email !== 'antrippy1@gmail.com' && user.email !== 'ath222139@gmail.com')) return;
 
     // Fetch current workplace location
     getDoc(doc(db, 'settings', 'workplace')).then(snap => {
@@ -117,6 +121,9 @@ export default function AdminHomeScreen() {
       let totalDeductions = 0;
       let totalOvertime = 0;
       
+      const employeeData = snapshot.docs.map(d => ({ uid: d.id, ...d.data() }));
+      userCache.fill(employeeData);
+
       snapshot.docs.forEach(doc => {
         const data = doc.data();
         totalSalaries += data.baseSalary || 0;
@@ -180,11 +187,8 @@ export default function AdminHomeScreen() {
 
     // 5. Recent Activity Listener
     const activityQuery = query(collection(db, 'attendance'), orderBy('checkInTime', 'desc'), limit(6));
-    const unsubscribeActivity = onSnapshot(activityQuery, (snapshot) => {
-      // Note: This won't have user names unless we join, which onSnapshot doesn't do natively.
-      // We'll keep the logic of mapping and trying to find the user in our current employees state
-      // or just display what we have.
-      const activities = snapshot.docs.map(doc => {
+    const unsubscribeActivity = onSnapshot(activityQuery, async (snapshot) => {
+      const activities = await Promise.all(snapshot.docs.map(async (doc) => {
         const data = doc.data();
         let timeStr = '...';
         try {
@@ -197,15 +201,17 @@ export default function AdminHomeScreen() {
           console.error('Error parsing time:', e);
         }
 
+        const userName = await userCache.getUserName(data.userId);
+
         return {
           id: doc.id,
           userId: data.userId,
-          userName: 'تحميل...',
+          userName: userName,
           time: timeStr,
           status: data.isLeave ? 'leave' : data.status,
           type: data.isLeave ? 'إجازة' : 'تحضير'
         };
-      });
+      }));
       setRecentActivity(activities);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'attendance');
@@ -277,35 +283,34 @@ export default function AdminHomeScreen() {
     );
   };
 
-  // Update activity names when recentActivity changes
-  useEffect(() => {
-    let isMounted = true;
-    if (recentActivity.length > 0) {
-      const fetchNames = async () => {
-        const needsUpdate = recentActivity.some(act => act.userName === 'تحميل...');
-        if (!needsUpdate) return;
-
-        const updatedActivity = await Promise.all(recentActivity.map(async (act) => {
-          if (act.userName !== 'تحميل...') return act;
-          try {
-            const userDoc = await getDoc(doc(db, 'users', act.userId));
-            if (userDoc.exists() && isMounted) {
-              return { ...act, userName: userDoc.data().displayName || 'موظف' };
-            }
-          } catch (e) {
-            console.error('Error resolving activity name:', e);
-          }
-          return act;
-        }));
-
-        if (isMounted) {
-          setRecentActivity(updatedActivity);
-        }
-      };
-      fetchNames();
+  const fetchPresentEmployees = async () => {
+    setShowPresentModal(true);
+    setLoadingPresent(true);
+    const todayStr = getTodayBaghdadStr();
+    const q = query(
+      collection(db, 'attendance'), 
+      where('date', '==', todayStr),
+      where('status', '==', 'present')
+    );
+    try {
+      const snap = await getDocs(q);
+      const employeesData = await Promise.all(snap.docs.map(async (d) => {
+        const data = d.data();
+        const displayName = await userCache.getUserName(data.userId);
+        return {
+          id: d.id,
+          ...data,
+          displayName,
+          checkInTime: data.checkInTime?.toDate ? data.checkInTime.toDate() : (data.checkInTime ? new Date(data.checkInTime) : new Date())
+        };
+      }));
+      setPresentEmployees(employeesData);
+    } catch (error) {
+      console.error('Error fetching present employees:', error);
+    } finally {
+      setLoadingPresent(false);
     }
-    return () => { isMounted = false; };
-  }, [recentActivity.map(a => a.id).join(',')]);
+  };
 
   return (
     <div className="min-h-screen flex flex-col font-sans rtl bg-white">
@@ -414,7 +419,7 @@ export default function AdminHomeScreen() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-6">
         <MetricCard label="إجمالي الموظفين" value={stats.totalEmployees} icon="groups" trend="+2" color="bg-white text-slate-900" />
-        <MetricCard label="الحضور اليوم" value={stats.presentToday} icon="task_alt" trend="98%" color="bg-emerald-50 text-emerald-600" />
+        <MetricCard label="الحضور اليوم" value={stats.presentToday} icon="task_alt" trend="98%" color="bg-emerald-50 text-emerald-600" onClick={fetchPresentEmployees} />
         <MetricCard label="المتأخرون" value={stats.lateToday} icon="history" trend={`${stats.lateToday > 0 ? '+' : ''}${stats.lateToday}`} color="bg-amber-50 text-amber-600" />
         <MetricCard 
           label="طلبات معلقة" 
@@ -428,7 +433,7 @@ export default function AdminHomeScreen() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={`${user?.role === 'supervisor' ? 'col-span-full' : 'lg:col-span-2'} bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-8 border border-slate-50 shadow-sm flex flex-col gap-8`}>
+        <div className={`${user?.role === 'supervisor' ? 'col-span-full' : 'lg:col-span-2'} bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-8 border border-slate-50 shadow-sm flex flex-col gap-8`}>
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <h3 className="text-base md:text-lg font-black text-slate-900  ">مؤشر الانضباط الأسبوعي</h3>
@@ -457,12 +462,15 @@ export default function AdminHomeScreen() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
-                <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 900 }} cursor={{ stroke: '#E31E24', strokeWidth: 2, strokeDasharray: '4 4' }} />
-                <Area type="monotone" dataKey="حضور" stroke="#E31E24" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" animationDuration={1500} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 900 }} 
+                  cursor={{ stroke: '#E31E24', strokeWidth: 2 }} 
+                />
+                <Area type="monotone" dataKey="حضور" stroke="#E31E24" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </motion.div>
+        </div>
         
         {user?.role !== 'supervisor' && (
           <div className="space-y-6">
@@ -527,6 +535,81 @@ export default function AdminHomeScreen() {
           </AnimatePresence>
         </div>
       </section>
+
+      {/* Present Employees Modal */}
+      <AnimatePresence>
+        {showPresentModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center px-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPresentModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[40px] w-full max-w-lg p-8 shadow-2xl relative z-10 max-h-[80vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                    <span className="material-symbols-outlined text-2xl">group</span>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900">الموظفون الحاضرون</h3>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">إجمالي الحضور اليوم: {presentEmployees.length}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowPresentModal(false)}
+                  className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center hover:bg-slate-200 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">close</span>
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3 text-right">
+                {loadingPresent ? (
+                  <div className="py-20 flex flex-col items-center justify-center gap-4">
+                    <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">جاري جلب قائمة الحضور...</p>
+                  </div>
+                ) : presentEmployees.length === 0 ? (
+                  <div className="py-12 text-center text-slate-300 border-2 border-dashed border-slate-50 rounded-3xl">
+                    <p className="text-[10px] font-black uppercase">لا يوجد موظفون حاضرون حالياً</p>
+                  </div>
+                ) : (
+                  presentEmployees.map((emp) => (
+                    <motion.div 
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      key={emp.id} 
+                      className="bg-slate-50/50 rounded-2xl p-4 border border-slate-100 flex items-center justify-between group hover:bg-white transition-all"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-300 shadow-sm group-hover:scale-110 transition-transform">
+                          <span className="material-symbols-outlined">person</span>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-slate-800">{emp.displayName}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">وقت الحضور: {formatTime12h(emp.checkInTime)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                        <span className="text-[9px] font-black text-emerald-600 uppercase">نشط الآن</span>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   </div>
 );

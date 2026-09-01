@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, orderBy, onSnapshot, doc, getDoc, getDocs, updateDoc, serverTimestamp, addDoc, increment, deleteDoc } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, isFirestoreQuotaExhausted, setFirestoreQuotaExhausted } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { Notification, ChatRoom, LeaveRequest, User } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatTime12h, formatDateNumeric, getCurrentMonthBaghdadStr } from '../lib/timeUtils';
 import AdminTopHeader from '../components/AdminTopHeader';
 import ChatRoomItem from '../components/ChatRoomItem';
+import { NotificationService } from '../services/NotificationService';
+import { userCache } from '../services/UserCacheService';
 
 export default function NotificationsScreen() {
   const { user, loading: authLoading } = useAuth();
@@ -149,23 +151,17 @@ export default function NotificationsScreen() {
       unsubscribeRequests = onSnapshot(qReq, async (snapshot) => {
         const requestsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest));
         
-        // Fetch user info for mapping
-        const userIds = Array.from(new Set(requestsData.map(r => r.userId)));
-        const usersMap: { [key: string]: { name: string, role: string } } = {};
-        
-        for (const uid of userIds) {
-          const uSnap = await getDoc(doc(db, 'users', uid));
-          if (uSnap.exists()) {
-            const d = uSnap.data();
-            usersMap[uid] = { name: d.displayName, role: d.jobTitle || 'موظف' };
-          }
-        }
+        // Use userCache for mapping to save reads
+        const updatedRequests = await Promise.all(requestsData.map(async (r) => {
+          const userName = await userCache.getUserName(r.userId);
+          return {
+            ...r,
+            userName: userName,
+            userRole: 'موظف'
+          };
+        }));
 
-        setRequests(requestsData.map(r => ({
-          ...r,
-          userName: usersMap[r.userId]?.name || 'موظف غير معروف',
-          userRole: usersMap[r.userId]?.role || 'غير محدد'
-        })));
+        setRequests(updatedRequests);
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, 'requests');
       });
@@ -182,10 +178,14 @@ export default function NotificationsScreen() {
   }, [user, authLoading, isManagement]);
 
   async function checkForAutomatedDeductions() {
-    if (!auth.currentUser) {
-      console.warn("Skipping automated deductions check: No auth user");
-      return;
-    }
+    if (!auth.currentUser || isFirestoreQuotaExhausted()) return;
+
+    // Throttle automated checks: only once every 6 hours per manager
+    const lastCheckKey = `last_auto_deduct_check_${user?.uid}`;
+    const lastCheck = localStorage.getItem(lastCheckKey);
+    if (lastCheck && Date.now() - parseInt(lastCheck, 10) < 6 * 60 * 60 * 1000) return;
+    localStorage.setItem(lastCheckKey, Date.now().toString());
+
     try {
       const employeesSnap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['employee', 'admin', 'supervisor'])));
       for (const empDoc of employeesSnap.docs) {
@@ -207,13 +207,20 @@ export default function NotificationsScreen() {
           }
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded')) {
+        setFirestoreQuotaExhausted();
+      }
       console.error("Error in automated deductions check:", error);
-      // We don't use handleFirestoreError here to avoid crashing the screen if this background task fails
     }
   }
 
   const handleAction = async (requestId: string, userId: string, action: 'approved' | 'rejected', type: string, amount?: number, groupName?: string, userName?: string) => {
+    const { isFirestoreQuotaExhausted } = await import('../lib/firebase');
+    if (isFirestoreQuotaExhausted()) {
+      alert('عذراً، لا يمكن معالجة الطلب حالياً بسبب نفاذ حصة العمليات اليومية. يرجى المحاولة لاحقاً.');
+      return;
+    }
     try {
       const requestRef = doc(db, 'requests', requestId);
       const reqSnap = await getDoc(requestRef);

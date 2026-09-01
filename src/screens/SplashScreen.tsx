@@ -57,7 +57,7 @@ export default function SplashScreen() {
             <img 
               alt="Kudo Kudo Logo" 
               className="object-contain w-full h-full" 
-              src="./Applogo.PNG" 
+              src={`${import.meta.env.BASE_URL}Applogo.PNG`} 
             />
           </motion.div>
 

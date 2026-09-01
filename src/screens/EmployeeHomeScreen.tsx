@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../hooks/useAuth';
 import { collection, query, where, limit, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, isFirestoreQuotaExhausted } from '../lib/firebase';
 import { Attendance, ActivityLog } from '../types';
 import { useLocationTracking } from '../hooks/useLocationTracking';
 import ManagerTools from '../components/ManagerTools';
@@ -50,7 +50,7 @@ export default function EmployeeHomeScreen() {
   useLocationTracking(user);
 
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (authLoading || !user || isFirestoreQuotaExhausted()) return;
     const fetchData = async () => {
         try {
           const today = getTodayBaghdadStr();

@@ -107,6 +107,13 @@ export default function AdminScheduleScreen() {
     if (selectedEntries.length === 0) return;
     const schedulePath = 'schedules';
     const notificationPath = 'notifications';
+
+    const { isFirestoreQuotaExhausted, setFirestoreQuotaExhausted } = await import('../lib/firebase');
+    if (isFirestoreQuotaExhausted()) {
+      alert('عذراً، تم تجاوز حد العمليات المسموح به اليوم. يرجى المحاولة لاحقاً.');
+      return;
+    }
+
     try {
       const year = currentDate.getFullYear();
       const month = String(currentDate.getMonth() + 1).padStart(2, '0');
@@ -164,8 +171,12 @@ export default function AdminScheduleScreen() {
 
       alert('تم حفظ ونشر الجدول وتنبيه الموظفين بنجاح');
       setSelectedEntries([]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Save error:", error);
+      if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded')) {
+        const { setFirestoreQuotaExhausted } = await import('../lib/firebase');
+        setFirestoreQuotaExhausted();
+      }
       handleFirestoreError(error, OperationType.CREATE, schedulePath);
     }
   };

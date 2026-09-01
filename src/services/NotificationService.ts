@@ -1,23 +1,17 @@
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, isFirestoreQuotaExhausted, setFirestoreQuotaExhausted } from '../lib/firebase';
 import { Schedule, User } from '../types';
 import { formatTime12h, getTodayBaghdadStr } from '../lib/timeUtils';
 
 export class NotificationService {
-  private static quotaExhaustedUntil = 0;
-
-  private static isQuotaExhausted() {
-    return Date.now() < this.quotaExhaustedUntil;
-  }
-
-  private static setQuotaExhausted() {
-    // Stop all writes for 15 minutes if quota is hit
-    this.quotaExhaustedUntil = Date.now() + 15 * 60 * 1000;
-    console.warn('Firestore quota exceeded. Backing off for 15 minutes.');
-  }
-
   static async processScheduledNotifications(userId?: string) {
-    if (this.isQuotaExhausted()) return;
+    if (isFirestoreQuotaExhausted()) return;
+
+    // Cross-tab throttling: only run every 4 minutes (even if interval is 5)
+    const lastRunKey = `last_notif_run_${userId || 'all'}`;
+    const lastRun = localStorage.getItem(lastRunKey);
+    if (lastRun && Date.now() - parseInt(lastRun, 10) < 240000) return;
+    localStorage.setItem(lastRunKey, Date.now().toString());
 
     const todayStr = getTodayBaghdadStr();
     const now = new Date();
@@ -40,14 +34,14 @@ export class NotificationService {
       }
     } catch (err: any) {
       if (err?.code === 'resource-exhausted') {
-        this.setQuotaExhausted();
+        setFirestoreQuotaExhausted();
       }
       console.error('Notification Service Error:', err);
     }
   }
 
   private static async checkAndSend(schedule: Schedule, now: Date) {
-    if (this.isQuotaExhausted()) return;
+    if (isFirestoreQuotaExhausted()) return;
 
     const [startH, startM] = schedule.startTime.split(':').map(Number);
     const schedStart = new Date(now);
@@ -100,7 +94,7 @@ export class NotificationService {
         await updateDoc(doc(db, 'schedules', schedule.id!), updates);
       } catch (err: any) {
         if (err?.code === 'resource-exhausted') {
-          this.setQuotaExhausted();
+          setFirestoreQuotaExhausted();
         }
         throw err;
       }
@@ -108,7 +102,14 @@ export class NotificationService {
   }
 
   static async processEndOfDay() {
-    if (this.isQuotaExhausted()) return;
+    if (isFirestoreQuotaExhausted()) return;
+
+    // Cross-tab throttling: only run every 12 hours (it only needs to run once a day)
+    const lastRunKey = 'last_eod_run';
+    const lastRun = localStorage.getItem(lastRunKey);
+    if (lastRun && Date.now() - parseInt(lastRun, 10) < 12 * 60 * 60 * 1000) return;
+    localStorage.setItem(lastRunKey, Date.now().toString());
+
     const now = new Date();
     const yesterday = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Baghdad' }));
     yesterday.setDate(yesterday.getDate() - 1);

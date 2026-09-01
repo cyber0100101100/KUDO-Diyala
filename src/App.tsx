@@ -26,11 +26,13 @@ import AdminSalaryScreen from './screens/AdminSalaryScreen';
 import AdminEmployeeProfileScreen from './screens/AdminEmployeeProfileScreen';
 import AdminOrdersScreen from './screens/AdminOrdersScreen';
 import GlobalServiceRunner from './components/GlobalServiceRunner';
+import QuotaBanner from './components/QuotaBanner';
 
 export default function App() {
   return (
     <HashRouter>
       <AuthProvider>
+        <QuotaBanner />
         <GlobalServiceRunner />
         <Routes>
         <Route path="/" element={<SplashScreen />} />
