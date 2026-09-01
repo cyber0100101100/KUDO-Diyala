@@ -85,6 +85,7 @@ export default function SignUpScreen() {
     setLoading(true);
     setError('');
     try {
+      // Use signInWithPopup which is more reliable in AI Studio preview
       const result = await signInWithPopup(auth, provider);
       const userDocRef = doc(db, 'users', result.user.uid);
       const userDoc = await getDoc(userDocRef);
@@ -121,13 +122,17 @@ export default function SignUpScreen() {
         navigate('/admin/home');
       }
     } catch (err: any) {
-      console.error(err);
+      console.error('Google Auth Error:', err);
       if (err.code === 'auth/popup-blocked') {
-        setError('تم حظر النافذة المنبثقة. يرجى السماح بالمنبثقات لهذا الموقع.');
+        setError('تم حظر النافذة المنبثقة. يرجى السماح بالمنبثقات لهذا الموقع من إعدادات المتصفح.');
       } else if (err.code === 'auth/account-exists-with-different-credential') {
         setError('هذا الحساب موجود بالفعل باستخدام وسيلة دخول مختلفة. يرجى تسجيل الدخول باستخدام البريد الإلكتروني وكلمة المرور.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('هذا النطاق (Domain) غير مخول لتسجيل الدخول عبر Google. يرجى إضافته في إعدادات Firebase Console.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError('تم إغلاق نافذة تسجيل الدخول قبل اكتمال العملية.');
       } else {
-        setError('حدث خطأ أثناء التسجيل باستخدام Google');
+        setError('حدث خطأ أثناء التسجيل باستخدام Google. تأكد من تفعيل الخدمة في Firebase Console.');
       }
     } finally {
       setLoading(false);
@@ -282,12 +287,13 @@ export default function SignUpScreen() {
 
           <button 
             onClick={handleGoogleSignUp}
-            className="w-full py-4.5 bg-white border border-slate-200 rounded-2xl text-slate-700 font-bold flex items-center justify-center gap-3 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98] shadow-sm text-sm"
+            className="w-full py-5 bg-white border-2 border-slate-100 rounded-3xl text-slate-700 font-black flex items-center justify-center gap-4 hover:bg-slate-50 hover:border-red-100 hover:text-red-600 transition-all active:scale-[0.98] shadow-[0_10px_20px_-10px_rgba(0,0,0,0.05)] hover:shadow-[0_20px_40px_-15px_rgba(227,30,36,0.1)] text-sm group relative overflow-hidden"
             type="button"
             disabled={loading}
           >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-            <span>المتابعة باستخدام Google</span>
+            <div className="absolute inset-0 bg-gradient-to-r from-red-50/0 via-red-50/30 to-red-50/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 group-hover:scale-110 transition-transform" alt="Google" />
+            <span className="relative z-10">المتابعة باستخدام Google</span>
           </button>
         </div>
       </main>

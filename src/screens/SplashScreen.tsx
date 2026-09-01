@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import logo from '/logo.png?url';
+import logo from '/logo_upscayl_4x_upscayl-standard-4x.png?url';
 import { useAuth } from '../hooks/useAuth';
 
 export default function SplashScreen() {
@@ -53,40 +53,33 @@ export default function SplashScreen() {
               duration: 1.2,
               ease: [0.16, 1, 0.3, 1]
             }}
-            className="w-full max-w-[280px] md:max-w-[340px] aspect-[2/1] flex items-center justify-center mb-10 bg-white/10 rounded-[32px] p-6 backdrop-blur-md border border-white/20 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)]"
+            className="w-full max-w-[280px] md:max-w-[340px] aspect-[2/1] flex items-center justify-center mb-10"
           >
             <img 
               alt="Kudo Kudo Logo" 
-              className="object-contain w-full h-full" 
+              className="object-contain w-full h-full drop-shadow-2xl" 
               src={logo} 
             />
           </motion.div>
 
-        <div className="text-center space-y-4">
+        <div className="text-center">
           <motion.h1 
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.6 }}
-            className="text-[32px] md:text-[40px] leading-none font-black text-white  "
+            className="text-[42px] md:text-[56px] leading-tight font-black text-white tracking-tighter"
           >
-            Smart Attendance
+            KUDO KUDO
           </motion.h1>
           
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.6 }}
-            transition={{ duration: 1, delay: 1.2 }}
-            className="h-px w-12 bg-white mx-auto"
-          />
-
-          <motion.p 
+          <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 1 }}
-            className="text-[18px] md:text-[22px] leading-relaxed text-white font-medium  "
+            className="text-[20px] md:text-[28px] font-bold text-white/90 tracking-[0.4em] uppercase mt-2"
           >
-            إدارة فريقك بكل احترافية
-          </motion.p>
+            DIYALA
+          </motion.div>
         </div>
       </div>
 
