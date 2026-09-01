@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
+import logo from '/logo.png?url';
 import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -145,7 +146,7 @@ export default function SignUpScreen() {
       <main className="w-full max-w-md mx-auto">
         <div className="flex justify-center mb-10">
           <div className="h-16 flex items-center justify-center px-8">
-            <img alt="KUDO KUDO" className="h-full object-contain" src={`${import.meta.env.BASE_URL}Applogo.PNG`} />
+            <img alt="KUDO KUDO" className="h-full object-contain" src={logo} />
           </div>
         </div>
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
+import logo from '/logo.png?url';
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -151,7 +152,7 @@ export default function LoginScreen() {
       <div className="bg-white rounded-[48px] shadow-[0_32px_64px_-12px_rgba(15,23,42,0.08)] w-full max-w-md p-10 flex flex-col items-center border border-slate-100/50">
         <div className="flex flex-col items-center mb-10 w-full">
           <div className="w-full h-24 flex items-center justify-center mb-10 px-8">
-            <img src={`${import.meta.env.BASE_URL}Applogo.PNG`} alt="KUDO KUDO" className="h-full object-contain" />
+            <img src={logo} alt="KUDO KUDO" className="h-full object-contain" />
           </div>
           <h1 className="text-3xl font-black text-slate-800 mb-2  ">
             {role === 'manager' ? 'مدير كودو' : 'موظف كودو'}

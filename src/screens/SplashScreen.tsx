@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
+import logo from '/logo.png?url';
 import { useAuth } from '../hooks/useAuth';
 
 export default function SplashScreen() {
@@ -57,7 +58,7 @@ export default function SplashScreen() {
             <img 
               alt="Kudo Kudo Logo" 
               className="object-contain w-full h-full" 
-              src={`${import.meta.env.BASE_URL}Applogo.PNG`} 
+              src={logo} 
             />
           </motion.div>
 

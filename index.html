@@ -6,9 +6,18 @@
     <meta name="theme-color" content="#E31E24" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="manifest" href="manifest.json" />
-    <link rel="icon" type="image/png" href="Applogo.PNG" />
-    <link rel="apple-touch-icon" href="Applogo.PNG" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" type="image/png" href="./logo.png" />
+    <link rel="apple-touch-icon" href="./logo.png" />
+    <script>
+      // Fix for GitHub Pages trailing slash issue
+      (function() {
+        var path = window.location.pathname;
+        if (path.length > 1 && path.substr(-1) !== '/' && !path.split('/').pop().includes('.')) {
+          window.location.replace(path + '/' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
     <title>KUDO KUDO - Smart Attendance</title>
     <meta name="description" content="KUDO KUDO Smart Attendance Management System" />
     
